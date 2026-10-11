@@ -1,6 +1,6 @@
 'use client'
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Utensils, Users, Droplets, Navigation, Sun, Moon, WifiOff, HelpCircle } from 'lucide-react';
+import { Utensils, Users, Droplets, Navigation, Sun, Moon, Wifi, WifiOff, HelpCircle, Brain, Volume2, AlertTriangle, Loader2 } from 'lucide-react';
 
 interface Option {
     id: string;
@@ -290,9 +290,9 @@ const CommunicationInterface: React.FC = () => {
     };
 
     const connectionStatusIcon = () => {
-        if (isConnected) return <WifiOff size={20} className="text-green-400" />;
-        if (device && !isConnected) return <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />;
-        return <WifiOff size={20} className="text-red-400" />;
+        if (isConnected) return <Wifi size={20} className="text-emerald-500" />;
+        if (device && !isConnected) return <Loader2 size={20} className="text-sky-500 motion-safe:animate-spin" />;
+        return <WifiOff size={20} className="text-rose-500" />;
     };
 
     const handleOptionClick = (option: Option) => {
@@ -309,228 +309,271 @@ const CommunicationInterface: React.FC = () => {
         setIsDarkMode(!isDarkMode);
     };
 
-    // Enhanced theme classes with glassmorphism
-    const themeClasses = {
-        background: isDarkMode
-            ? 'bg-slate-900'
-            : 'bg-gray-50',
-        text: isDarkMode ? 'text-white' : 'text-slate-800',
-        cardBg: isDarkMode
-            ? 'bg-white/10 backdrop-blur-xl border-white/20'
-            : 'bg-white/70 backdrop-blur-xl border-white/30 shadow-xl',
-        cardHover: isDarkMode
-            ? 'hover:bg-white/20 hover:border-white/30'
-            : 'hover:bg-white/80 hover:border-white/50',
-        textSecondary: isDarkMode ? 'text-slate-300' : 'text-slate-600',
-        textMuted: isDarkMode ? 'text-slate-400' : 'text-slate-500',
-        glassBg: isDarkMode
-            ? 'bg-white/5 backdrop-blur-2xl border border-white/10'
-            : 'bg-white/60 backdrop-blur-2xl border border-white/20 shadow-lg'
+    // ─────────────────────────────────────────────────────────────────────────
+    // UI ONLY BELOW THIS LINE (theme + markup).
+    // Everything above (Bluetooth, notifications, menu state, audio) is unchanged.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const dark = isDarkMode;
+    const t = {
+        page: dark ? 'bg-slate-950 text-slate-50' : 'bg-stone-100 text-slate-900',
+        glow: dark
+            ? 'radial-gradient(60rem 40rem at 85% -10%, rgba(99,102,241,0.18), transparent 60%), radial-gradient(50rem 36rem at -10% 110%, rgba(20,184,166,0.14), transparent 60%)'
+            : 'radial-gradient(60rem 40rem at 85% -10%, rgba(99,102,241,0.10), transparent 60%), radial-gradient(50rem 36rem at -10% 110%, rgba(20,184,166,0.10), transparent 60%)',
+        surface: dark ? 'bg-slate-900 border-slate-700/80' : 'bg-white border-slate-200',
+        surfaceHover: dark ? 'hover:bg-slate-800 hover:border-slate-500' : 'hover:bg-slate-50 hover:border-slate-400',
+        raised: dark ? 'bg-slate-800/70 border-slate-700' : 'bg-slate-50 border-slate-200',
+        muted: dark ? 'text-slate-400' : 'text-slate-600',
+        strong: dark ? 'text-white' : 'text-slate-900',
+        control: dark
+            ? 'bg-slate-900 border-slate-700 hover:bg-slate-800 text-slate-100'
+            : 'bg-white border-slate-300 hover:bg-slate-50 text-slate-800',
     };
 
+    // Derived display values (read-only; no state is changed here)
+    const highlightedOption =
+        menuActive && currentMenuIndex > 0 && currentMenuIndex <= options.length
+            ? options[currentMenuIndex - 1]
+            : null;
+    const speakingOption = options.find((o) => o.id === activeSelection) ?? null;
+
+    let bannerTone = 'idle';
+    let bannerText = 'Connect your NeuralHelp device to begin.';
+    if (isConnected) {
+        if (speakingOption) {
+            bannerTone = 'speaking';
+            bannerText = `Speaking: ${speakingOption.label}`;
+        } else if (highlightedOption) {
+            bannerTone = 'scanning';
+            bannerText = `Highlighting: ${highlightedOption.label}. Triple blink to choose it.`;
+        } else if (menuActive) {
+            bannerTone = 'scanning';
+            bannerText = 'Menu is active. Double blink to move through the options.';
+        } else {
+            bannerTone = 'ready';
+            bannerText = 'Connected. Double blink to activate the menu.';
+        }
+    }
+
+    const bannerStyles: Record<string, string> = {
+        idle: dark ? 'border-slate-700 bg-slate-900' : 'border-slate-300 bg-white',
+        ready: dark ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-emerald-500/60 bg-emerald-50',
+        scanning: dark ? 'border-amber-400/60 bg-amber-400/10' : 'border-amber-500/70 bg-amber-50',
+        speaking: dark ? 'border-emerald-400 bg-emerald-500/20' : 'border-emerald-500 bg-emerald-100',
+    };
+    const bannerDot: Record<string, string> = {
+        idle: 'bg-slate-400',
+        ready: 'bg-emerald-500',
+        scanning: 'bg-amber-400',
+        speaking: 'bg-emerald-500',
+    };
+
+    // Which "How it works" step is current
+    const currentStep = !isConnected ? 0 : speakingOption ? 3 : menuActive ? 2 : 1;
+
+    const steps = [
+        { step: '01', title: 'Connect', desc: 'Connect to the NeuralHelp.' },
+        { step: '02', title: 'Activate Menu', desc: 'Double blink to activate the menu.' },
+        { step: '03', title: 'Switch Option', desc: 'Double blink to switch between the options.' },
+        { step: '04', title: 'Select', desc: 'Triple blink to choose the selected option.' },
+    ];
+
     return (
-        <div className={`min-h-screen min-w-full flex flex-col transition-all duration-700 ${themeClasses.background} ${themeClasses.text} relative overflow-hidden`}>
-            {/* Animated background elements - made responsive */}
-            <div className="absolute inset-0 overflow-hidden">
-                <div className={`absolute -top-20 -right-20 sm:-top-40 sm:-right-40 w-40 h-40 sm:w-80 sm:h-80 rounded-full ${isDarkMode ? 'bg-purple-500/20' : 'bg-blue-200/30'} blur-3xl animate-pulse`}></div>
-                <div className={`absolute -bottom-20 -left-20 sm:-bottom-40 sm:-left-40 w-40 h-40 sm:w-80 sm:h-80 rounded-full ${isDarkMode ? 'bg-blue-500/20' : 'bg-purple-200/30'} blur-3xl animate-pulse`} style={{ animationDelay: '2s' }}></div>
-                <div className={`absolute top-1/2 left-1/2 w-30 h-30 sm:w-60 sm:h-60 rounded-full ${isDarkMode ? 'bg-pink-500/10' : 'bg-pink-200/20'} blur-3xl animate-pulse`} style={{ animationDelay: '4s' }}></div>
-            </div>
+        <div
+            className={`relative min-h-screen w-full ${t.page} transition-colors duration-500`}
+            style={{ backgroundImage: t.glow }}
+        >
+            <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-5 px-4 py-5 sm:gap-6 sm:px-6 sm:py-8 lg:px-10">
 
-            {/* Main content container with proper flexbox layout */}
-            <div className="flex-1 flex flex-col px-2 py-2 sm:px-4 sm:py-4 md:px-6 md:py-6 lg:px-8 lg:py-8 xl:px-12 xl:py-12 max-w-full relative z-10">
-
-                {/* Improved Responsive Header - better height and spacing */}
-                <div className="flex flex-col gap-4 sm:gap-5 md:gap-6 lg:flex-row lg:justify-between lg:items-center mb-6 sm:mb-8 lg:mb-12">
-
-                    {/* Left section - Logo and title */}
-                    <div className="flex items-center space-x-3 sm:space-x-4 md:space-x-5 min-h-[60px] sm:min-h-[70px] md:min-h-[80px] lg:min-h-[90px]">
-                        <div className="flex flex-col justify-center">
-                            <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-black text-purple-400 leading-none">
-                                NeuroSync - M2W
+                {/* ───────────── Header ───────────── */}
+                <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex items-center gap-4">
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-teal-400 text-white shadow-lg sm:h-14 sm:w-14">
+                            <Brain size={28} strokeWidth={1.75} aria-hidden="true" />
+                        </div>
+                        <div className="min-w-0">
+                            <h1 className={`text-2xl font-extrabold tracking-tight sm:text-3xl lg:text-4xl ${t.strong}`}>
+                                NeuroSync <span className="text-indigo-400">M2W</span>
                             </h1>
-                            <p className={`text-sm sm:text-base md:text-lg lg:text-xl ${themeClasses.textMuted} mt-1`}>
-                                Assistive Communication
+                            <p className={`text-sm sm:text-base ${t.muted}`}>
+                                Mind to Word(s) · Assistive Communication
                             </p>
                         </div>
                     </div>
 
-                    {/* Right section - Controls with improved responsive layout */}
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 md:gap-5 lg:gap-6 min-h-[60px] sm:min-h-[70px] md:min-h-[80px] lg:min-h-[90px]">
-
-                        {/* Top row for mobile, inline for larger screens */}
-                        <div className="flex items-center justify-between sm:justify-start gap-3 sm:gap-4">
-
-                            {/* Theme Toggle - improved sizing */}
-                            <button
-                                onClick={toggleTheme}
-                                className={`p-3 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl ${themeClasses.glassBg} hover:scale-110 active:scale-95 transition-all duration-300 group flex-shrink-0`}
-                                aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-                            >
-                                {isDarkMode ?
-                                    <Sun size={20} className="sm:w-6 sm:h-6 md:w-7 md:h-7 text-yellow-400 group-hover:rotate-180 transition-transform duration-500" /> :
-                                    <Moon size={20} className="sm:w-6 sm:h-6 md:w-7 md:h-7 text-slate-600 group-hover:rotate-180 transition-transform duration-500" />
-                                }
-                            </button>
-
-                            {/* Connection Status - improved responsive design */}
-                            <div className={`flex items-center space-x-2 sm:space-x-3 md:space-x-4 px-4 sm:px-5 md:px-6 py-3 sm:py-4 md:py-5 rounded-xl sm:rounded-2xl ${themeClasses.glassBg}
-                ring-2 ${isConnected ? 'ring-green-400/50' :
-                                    device && !isConnected ? 'ring-blue-400/50' : 'ring-red-400/50'}
-                text-sm sm:text-base md:text-lg min-w-0 flex-1 sm:flex-initial`}>
-
-                                <div className="relative flex-shrink-0">
-                                    {connectionStatusIcon()}
-                                </div>
-
-                                <span className="font-semibold truncate">
-                                    {connectionStatusText()}
+                    <div className="flex flex-wrap items-center gap-3">
+                        <div
+                            className={`flex min-h-[48px] items-center gap-2.5 rounded-2xl border px-4 text-sm font-semibold sm:text-base ${t.control}`}
+                            role="status"
+                            aria-label={`Device status: ${connectionStatusText()}`}
+                        >
+                            {connectionStatusIcon()}
+                            <span>{connectionStatusText()}</span>
+                            {menuActive && (
+                                <span className="rounded-full bg-amber-400 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-slate-900">
+                                    Menu on
                                 </span>
-
-                                {menuActive && (
-                                    <span className="text-xs sm:text-sm bg-purple-500 text-white px-2 sm:px-3 py-1 sm:py-1.5 rounded-full whitespace-nowrap flex-shrink-0">
-                                        Menu Active
-                                    </span>
-                                )}
-                            </div>
+                            )}
                         </div>
 
-                        {/* Bottom row for mobile, inline for larger screens */}
-                        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                        <button
+                            onClick={toggleTheme}
+                            className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60 ${t.control}`}
+                            aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+                        >
+                            {isDarkMode ? <Sun size={22} className="text-amber-300" /> : <Moon size={22} className="text-slate-700" />}
+                        </button>
 
-                            {/* Connection Button - improved sizing and responsiveness */}
-                            <button
-                                onClick={toggleConnection}
-                                disabled={isConnecting}
-                                className={`px-6 sm:px-7 md:px-8 lg:px-10 py-3 sm:py-4 md:py-5 rounded-xl sm:rounded-2xl font-semibold transition-all text-sm sm:text-base md:text-lg
-                  ${isConnected ? 'bg-red-500 hover:bg-red-600 active:bg-red-700' : 'bg-green-500 hover:bg-green-600 active:bg-green-700'}
-                  text-white shadow-lg hover:shadow-xl active:shadow-md
-                  ${isConnecting ? 'opacity-75 cursor-not-allowed' : 'hover:scale-105 active:scale-95'}
-                  transition-all duration-200 flex-shrink-0 min-h-[48px] sm:min-h-[56px] md:min-h-[64px]`}
-                                aria-label={isConnected ? 'Disconnect device' : 'Connect device'}
-                            >
-                                {isConnecting ? (
-                                    <span className="flex items-center justify-center">
-                                        <span className="animate-spin mr-2 sm:mr-3">↻</span>
-                                        <span className="hidden xs:inline">Connecting...</span>
-                                        <span className="xs:hidden">...</span>
-                                    </span>
-                                ) : isConnected ? (
-                                    'Disconnect'
-                                ) : (
-                                    'Connect'
-                                )}
-                            </button>
-                        </div>
-
-                        {/* Connection Error - improved positioning */}
-                        {connectionError && (
-                            <div className="text-red-500 text-sm sm:text-base bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-lg border border-red-200 dark:border-red-800 max-w-xs sm:max-w-sm break-words">
-                                <span className="font-medium">Error: </span>
-                                {connectionError}
-                            </div>
-                        )}
+                        <button
+                            onClick={toggleConnection}
+                            disabled={isConnecting}
+                            className={`min-h-[48px] min-w-[9rem] rounded-2xl px-7 text-base font-bold text-white shadow-lg transition-all focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/60 sm:min-h-[56px] sm:text-lg
+                                ${isConnected ? 'bg-rose-600 hover:bg-rose-500 active:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700'}
+                                ${isConnecting ? 'cursor-not-allowed opacity-70' : 'active:scale-95'}`}
+                            aria-label={isConnected ? 'Disconnect device' : 'Connect device'}
+                        >
+                            {isConnecting ? (
+                                <span className="flex items-center justify-center gap-2">
+                                    <Loader2 size={20} className="motion-safe:animate-spin" aria-hidden="true" />
+                                    Connecting…
+                                </span>
+                            ) : isConnected ? (
+                                'Disconnect'
+                            ) : (
+                                'Connect'
+                            )}
+                        </button>
                     </div>
+                </header>
+
+                {connectionError && (
+                    <div
+                        role="alert"
+                        className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm sm:text-base ${dark ? 'border-rose-500/50 bg-rose-500/10 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}
+                    >
+                        <AlertTriangle size={20} className="mt-0.5 shrink-0" aria-hidden="true" />
+                        <p className="break-words">
+                            <span className="font-semibold">Couldn&apos;t connect: </span>
+                            {connectionError}
+                        </p>
+                    </div>
+                )}
+
+                {/* ───────────── Live status banner ───────────── */}
+                <div
+                    className={`flex items-center gap-4 rounded-2xl border-2 px-5 py-4 transition-colors duration-300 sm:px-6 sm:py-5 ${bannerStyles[bannerTone]}`}
+                    role="status"
+                    aria-live="polite"
+                >
+                    <span className="relative flex h-3.5 w-3.5 shrink-0">
+                        {bannerTone !== 'idle' && (
+                            <span className={`absolute inline-flex h-full w-full rounded-full opacity-60 motion-safe:animate-ping ${bannerDot[bannerTone]}`} />
+                        )}
+                        <span className={`relative inline-flex h-3.5 w-3.5 rounded-full ${bannerDot[bannerTone]}`} />
+                    </span>
+                    <p className={`text-lg font-semibold sm:text-xl lg:text-2xl ${t.strong}`}>{bannerText}</p>
                 </div>
 
-                {/* Options Grid - fully responsive for all screen sizes and zoom levels */}
-                <div className="flex-shrink-0 mb-4 sm:mb-6">
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 md:gap-4 lg:gap-5 xl:gap-6 max-w-full">
+                {/* ───────────── Options ───────────── */}
+                <main className="flex-1">
+                    <div className="grid h-full auto-rows-fr grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:gap-6">
                         {options.map((option, index) => {
                             const isSelected = selectedOption === option.id;
-                            const isCurrentMenuOption = menuActive && currentMenuIndex === index + 1;
+                            const isScanning = menuActive && currentMenuIndex === index + 1;
+                            const isSpeaking = activeSelection === option.id;
+
+                            let tileState = `${t.surface} ${t.surfaceHover}`;
+                            if (isSpeaking) {
+                                tileState = `${option.color} border-transparent text-white shadow-2xl scale-[1.03]`;
+                            } else if (isScanning) {
+                                tileState = `${dark ? 'bg-amber-400/15' : 'bg-amber-50'} border-amber-400 ring-4 ring-amber-400/80 scale-[1.03] shadow-xl`;
+                            } else if (isSelected) {
+                                tileState = `${t.surface} border-emerald-400`;
+                            }
+
+                            const chip = isSpeaking ? 'Speaking' : isScanning ? 'Scanning' : isSelected ? 'Selected' : null;
+                            const chipStyle = isSpeaking
+                                ? 'bg-white/25 text-white'
+                                : isScanning
+                                    ? 'bg-amber-400 text-slate-900'
+                                    : 'bg-emerald-500 text-white';
 
                             return (
-                                <div
+                                <button
                                     key={option.id}
+                                    type="button"
                                     onClick={() => handleOptionClick(option)}
-                                    className={`
-                    aspect-square w-full h-full
-                    max-h-32 sm:max-h-40 md:max-h-48 lg:max-h-56 xl:max-h-64
-                    relative group cursor-pointer transition-all duration-500
-                    ${themeClasses.cardBg} ${themeClasses.cardHover}
-                    rounded-lg sm:rounded-xl p-1.5 sm:p-2 md:p-3 border-2
-                    ${isSelected ? 'border-green-400 bg-green-500/20' : 'border-transparent'}
-                    ${isCurrentMenuOption ? 'ring-2 ring-purple-400/50' : ''}
-                    ${!isConnected ? 'opacity-50 cursor-not-allowed' : ''}
-                    ${activeSelection === option.id ? '!bg-green-500/30 border-green-400 scale-105' : ''}
-                    hover:scale-105 active:scale-95
-                  `}
+                                    aria-pressed={isSelected}
+                                    aria-disabled={!isConnected}
+                                    aria-label={`${option.label}${isScanning ? ', currently highlighted' : ''}${isSpeaking ? ', speaking' : ''}`}
+                                    className={`relative flex min-h-[9.5rem] flex-col items-center justify-center gap-3 rounded-3xl border-2 p-4 text-center transition-all duration-300 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/70 sm:min-h-[12rem] sm:gap-4 lg:min-h-[15rem]
+                                        ${tileState}
+                                        ${!isConnected ? 'cursor-not-allowed opacity-60' : 'cursor-pointer active:scale-[0.97]'}`}
                                 >
-                                    <div className="flex flex-col items-center justify-center h-full space-y-1">
-                                        <div className={`
-                      p-1 sm:p-1.5 md:p-2 rounded-md sm:rounded-lg transition-all duration-500 group-hover:rotate-12
-                      ${isDarkMode ? 'bg-white/10 backdrop-blur-sm' : 'bg-white/50 backdrop-blur-sm'}
-                      ${isSelected ? 'bg-green-400/30' : ''}
-                      ${isCurrentMenuOption ? 'bg-purple-400/30' : ''}
-                    `}>
-                                            <div className={`transition-all duration-300 ${isDarkMode ? 'text-white' : 'text-slate-700'} ${isSelected ? 'text-green-400' : ''} ${isCurrentMenuOption ? 'text-purple-400' : ''}`}>
-                                                {React.isValidElement(option.icon) && typeof option.icon.type === "function"
-                                                    // Only clone if it's a Lucide icon (has a 'name' property or is a known component)
-                                                    ? React.cloneElement(option.icon as React.ReactElement<{ className?: string }>, {
-                                                        className: "w-4 h-4 sm:w-6 sm:h-6 md:w-8 md:h-8 lg:w-10 lg:h-10"
-                                                    })
-                                                    : option.icon}
-                                            </div>
-                                        </div>
-                                        <h3 className={`
-                     text-base sm:text-lg md:text-xl lg:text-2xl xl:text-3xl
-                     font-bold text-center transition-all duration-300 leading-tight
-                     ${isSelected ? 'text-green-400' : ''} ${isCurrentMenuOption ? 'text-purple-400' : ''}
-                         `}>
-                                            {option.label}
-                                        </h3>
+                                    <span
+                                        className={`absolute left-4 top-3 text-sm font-bold tabular-nums sm:text-base ${isSpeaking ? 'text-white/80' : t.muted}`}
+                                        aria-hidden="true"
+                                    >
+                                        {index + 1}
+                                    </span>
 
-                                        {isSelected && (
-                                            <div className="absolute -top-0.5 -right-0.5 w-3 h-3 sm:w-4 sm:h-4 bg-green-400 rounded-full flex items-center justify-center animate-pulse">
-                                                <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full"></div>
-                                            </div>
-                                        )}
+                                    {chip && (
+                                        <span className={`absolute right-3 top-3 flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.7rem] font-bold uppercase tracking-wide sm:text-xs ${chipStyle}`}>
+                                            {isSpeaking && <Volume2 size={14} aria-hidden="true" />}
+                                            {chip}
+                                        </span>
+                                    )}
 
-                                        {isCurrentMenuOption && !isSelected && (
-                                            <div className="absolute -top-0.5 -right-0.5 w-3 h-3 sm:w-4 sm:h-4 bg-purple-400 rounded-full flex items-center justify-center animate-pulse">
-                                                <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full"></div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
+                                    <span
+                                        className={`flex h-16 w-16 items-center justify-center rounded-2xl text-white shadow-md sm:h-20 sm:w-20 lg:h-24 lg:w-24
+                                            ${isSpeaking ? 'bg-white/25' : option.color}`}
+                                    >
+                                        {React.isValidElement(option.icon) && typeof option.icon.type === 'function'
+                                            ? React.cloneElement(option.icon as React.ReactElement<{ className?: string }>, {
+                                                className: 'h-8 w-8 sm:h-10 sm:w-10 lg:h-12 lg:w-12',
+                                            })
+                                            : option.icon}
+                                    </span>
+
+                                    <span className={`text-xl font-extrabold leading-tight sm:text-2xl lg:text-3xl ${isSpeaking ? 'text-white' : t.strong}`}>
+                                        {option.label}
+                                    </span>
+                                </button>
                             );
                         })}
                     </div>
-                </div>
+                </main>
 
-                {/* Spacer to push instructions to bottom */}
-                <div className="flex-grow"></div>
-
-                {/* Instructions section - positioned at bottom */}
-                <div className="flex-shrink-0 mt-auto pb-2 sm:pb-4">
-                    <div className="text-center">
-                        <h3 className={`text-base sm:text-lg md:text-xl lg:text-2xl font-bold mb-3 sm:mb-4 md:mb-6 ${themeClasses.textSecondary}`}>
-                            How It Works
-                        </h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6 max-w-full">
-                            {[
-                                { step: '01', title: 'Connect', desc: 'Connect to the NeuralHelp.', color: 'bg-blue-500' },
-                                { step: '02', title: 'Activate Menu', desc: 'Double blink to activate the menu.', color: 'bg-purple-500' },
-                                { step: '03', title: 'Switch Option', desc: 'Double blink to switch between the options.', color: 'bg-yellow-500' },
-                                { step: '04', title: 'Select', desc: 'Triple blink to choose the selected option.', color: 'bg-pink-500' }
-                            ].map((item, index) => (
-                                <div
-                                    key={index}
-                                    className={`${themeClasses.glassBg} w-full h-24 sm:h-28 md:h-32 lg:h-36
-                      p-3 sm:p-4 md:p-5 rounded-xl sm:rounded-2xl 
-                      group hover:scale-105 transition-all duration-300 flex flex-col justify-center`}
+                {/* ───────────── How it works ───────────── */}
+                <footer className="pb-2">
+                    <h2 className={`mb-3 text-sm font-bold uppercase tracking-widest ${t.muted}`}>How it works</h2>
+                    <ol className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        {steps.map((item, i) => {
+                            const isCurrent = i === currentStep;
+                            return (
+                                <li
+                                    key={item.step}
+                                    aria-current={isCurrent ? 'step' : undefined}
+                                    className={`flex items-start gap-4 rounded-2xl border p-4 transition-colors duration-300
+                                        ${isCurrent
+                                            ? (dark ? 'border-indigo-400 bg-indigo-500/10' : 'border-indigo-500 bg-indigo-50')
+                                            : t.raised}`}
                                 >
-                                    <div className={`w-8 h-20 sm:w-10 sm:h-32 md:w-12 md:h-18 lg:w-14 lg:h-28 rounded-xl ${item.color} flex items-center justify-center mb-2 sm:mb-3 mx-auto group-hover:rotate-12 transition-transform duration-300`}>
-                                        <span className="text-white font-black text-sm sm:text-base md:text-lg">{item.step}</span>
+                                    <span
+                                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-extrabold
+                                            ${isCurrent ? 'bg-indigo-500 text-white' : (dark ? 'bg-slate-700 text-slate-200' : 'bg-slate-200 text-slate-700')}`}
+                                    >
+                                        {item.step}
+                                    </span>
+                                    <div>
+                                        <p className={`text-base font-bold ${t.strong}`}>{item.title}</p>
+                                        <p className={`text-sm leading-relaxed ${t.muted}`}>{item.desc}</p>
                                     </div>
-                                    <div className="font-bold text-sm sm:text-base md:text-lg mb-1 sm:mb-2">{item.title}</div>
-                                    <div className={`text-xs sm:text-sm md:text-base ${themeClasses.textMuted} leading-relaxed`}>{item.desc}</div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
+                                </li>
+                            );
+                        })}
+                    </ol>
+                </footer>
             </div>
         </div>
     );
